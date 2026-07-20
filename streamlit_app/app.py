@@ -9,14 +9,18 @@ Deploy           : Streamlit Community Cloud (share.streamlit.io), main file app
 =============================================================================
 """
 
-import os
 import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from pipeline import jalankan_pipeline, top_fitur_tfidf, ringkasan_distribusi_total
+from pipeline import (
+    jalankan_pipeline, 
+    top_fitur_tfidf, 
+    ringkasan_distribusi_total,
+    KATA_FILTER  # Import untuk filter kata
+)
 
 # =============================================================================
 # KONFIGURASI HALAMAN
@@ -27,14 +31,11 @@ st.set_page_config(
     layout="wide",
 )
 
-# Gunakan os.path untuk penentuan path absolut berbasis lokasi file app.py
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 CSV_FILES = {
-    "Hotel Mahkota Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_MAHKOTA_SINGKAWANG.csv"),
-    "Hotel Swiss-Belhotel Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_SWISS-BELHOTEL_SINGKAWANG.csv"),
-    "Hotel Dayang Resort Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_DAYANG_RESORT_SINGKAWANG.csv"),
-    "Hotel Horison Ultima Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_HORISON_ULTIMA_SINGKAWANG.csv"),
+    "Hotel Mahkota Singkawang": "data/HOTEL_MAHKOTA_SINGKAWANG.csv",
+    "Hotel Swiss-Belhotel Singkawang": "data/HOTEL_SWISS-BELHOTEL_SINGKAWANG.csv",
+    "Hotel Dayang Resort Singkawang": "data/HOTEL_DAYANG_RESORT_SINGKAWANG.csv",
+    "Hotel Horison Ultima Singkawang": "data/HOTEL_HORISON_ULTIMA_SINGKAWANG.csv",
 }
 WARNA = {"Positif": "#4CAF50", "Negatif": "#F44336", "Netral": "#2196F3"}
 
@@ -93,6 +94,13 @@ st.sidebar.markdown(
     "- TF-IDF (max_features=1000, ngram (1,2))\n"
     "- Multinomial Naive Bayes (alpha=1.0)\n"
     "- Split 80:20 stratified, random_state=42"
+)
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "**📌 Catatan Visualisasi TF-IDF**\n\n"
+    "- Kata difilter untuk interpretasi\n"
+    "- **TIDAK mengubah** perhitungan TF-IDF\n"
+    "- **TIDAK mengubah** model & akurasi"
 )
 
 # =============================================================================
@@ -156,8 +164,9 @@ elif halaman == "Detail per Hotel":
     col2.metric("Accuracy", f"{res['accuracy']*100:.2f}%")
     col3.metric("Sentimen Dominan", df["label"].value_counts().idxmax())
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["Distribusi Sentimen", "Confusion Matrix", "Top Fitur TF-IDF", "Data Komentar"]
+    # TAB 1-4: Sama seperti sebelumnya
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Distribusi Sentimen", "Confusion Matrix", "Top Fitur TF-IDF", "Data Komentar", "Perbandingan Filter TF-IDF"]
     )
 
     with tab1:
@@ -190,13 +199,61 @@ elif halaman == "Detail per Hotel":
         st.pyplot(fig)
         st.text("Classification Report:\n" + res["report_str"])
 
+    # =============================================================
+    # TAB 3: TOP FITUR TF-IDF (DENGAN FILTER)
+    # =============================================================
     with tab3:
-        top10 = top_fitur_tfidf(res, n=10)
-        top_df = pd.DataFrame(top10, columns=["Kata/Frasa", "Bobot TF-IDF"])
-        st.dataframe(top_df, use_container_width=True, hide_index=True)
-        fig, ax = plt.subplots(figsize=(6, 4))
-        sns.barplot(data=top_df.iloc[::-1], x="Bobot TF-IDF", y="Kata/Frasa", ax=ax, palette="viridis")
-        st.pyplot(fig)
+        st.markdown("""
+        **🔍 Top Fitur TF-IDF (Kata Informatif)**
+        
+        Kata-kata yang ditampilkan telah **difilter** dari kata tidak informatif 
+        (nama kota, nama hotel, kata sambung, filler) agar lebih mudah diinterpretasikan.
+        
+        ⚠️ **Penting:** Penyaringan hanya untuk visualisasi, **TIDAK mengubah** 
+        perhitungan TF-IDF, model, maupun metrik evaluasi.
+        """)
+        
+        # Ambil data top fitur
+        top_data = res.get('top_fitur', {})
+        top_asli = top_data.get('top_asli', [])
+        top_filtered = top_data.get('top_filtered', [])
+        
+        # Tampilkan top setelah filter
+        if top_filtered:
+            col_a, col_b = st.columns([2, 3])
+            with col_a:
+                top_df = pd.DataFrame(top_filtered, columns=["Kata/Frasa", "Bobot TF-IDF"])
+                st.dataframe(top_df, use_container_width=True, hide_index=True)
+            with col_b:
+                fig, ax = plt.subplots(figsize=(6, 4))
+                top_df_plot = pd.DataFrame(top_filtered[::-1], columns=["Kata/Frasa", "Bobot TF-IDF"])
+                sns.barplot(data=top_df_plot, x="Bobot TF-IDF", y="Kata/Frasa", ax=ax, palette="viridis")
+                ax.set_title("Top Kata Informatif TF-IDF")
+                st.pyplot(fig)
+        else:
+            st.info("Tidak ada kata yang lolos filter.")
+        
+        # Toggle untuk melihat versi asli
+        with st.expander("📋 Lihat Top TF-IDF Asli (tanpa filter)"):
+            if top_asli:
+                top_df_asli = pd.DataFrame(top_asli, columns=["Kata/Frasa", "Bobot TF-IDF"])
+                top_df_asli['Status'] = top_df_asli['Kata/Frasa'].apply(
+                    lambda x: '✕ Difilter' if x in KATA_FILTER else '✅ Dipertahankan'
+                )
+                st.dataframe(top_df_asli, use_container_width=True, hide_index=True)
+                
+                # Visualisasi asli
+                fig, ax = plt.subplots(figsize=(8, 5))
+                colors = ['#EF5350' if w in KATA_FILTER else '#42A5F5' 
+                         for w, v in top_asli[::-1]]
+                bars = ax.barh([w for w, v in top_asli[::-1]], 
+                              [v for w, v in top_asli[::-1]], 
+                              color=colors)
+                ax.set_xlabel('Nilai TF-IDF')
+                ax.set_title('Top TF-IDF Asli (Merah = akan difilter)')
+                st.pyplot(fig)
+            else:
+                st.info("Tidak ada data top fitur asli.")
 
     with tab4:
         filter_label = st.multiselect(
@@ -211,6 +268,74 @@ elif halaman == "Detail per Hotel":
             file_name=f"{hotel_pilihan.replace(' ', '_')}_relabel.csv",
             mime="text/csv",
         )
+
+    # =============================================================
+    # TAB 5: PERBANDINGAN FILTER TF-IDF (BARU)
+    # =============================================================
+    with tab5:
+        st.subheader("📊 Perbandingan Top TF-IDF Sebelum vs Sesudah Filter")
+        st.markdown("""
+        **Catatan Metodologis:**
+        - Penyaringan kata dilakukan **HANYA UNTUK VISUALISASI** dan interpretasi.
+        - **TIDAK mengubah** perhitungan TF-IDF, model, maupun metrik evaluasi.
+        - Filter bertujuan membuang kata tidak informatif (nama kota, nama hotel, filler).
+        """)
+        
+        top_data = res.get('top_fitur', {})
+        top_asli = top_data.get('top_asli', [])[:10]
+        top_filtered = top_data.get('top_filtered', [])[:10]
+        
+        if top_asli or top_filtered:
+            # Buat dua subplot side-by-side
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+            
+            # Kiri: Sebelum filter
+            if top_asli:
+                words_asli = [w for w, v in top_asli]
+                vals_asli = [v for w, v in top_asli]
+                bars1 = axes[0].barh(words_asli[::-1], vals_asli[::-1], color='#B0BEC5')
+                axes[0].set_title(f'{hotel_pilihan}\nSEBELUM Filter (Asli)', fontsize=10, fontweight='bold')
+                axes[0].set_xlabel('Nilai TF-IDF')
+                axes[0].grid(axis='x', linestyle='--', alpha=0.3)
+                # Tandai kata yang akan difilter
+                for j, (bar, word) in enumerate(zip(bars1, words_asli[::-1])):
+                    if word in KATA_FILTER:
+                        bar.set_color('#EF5350')
+                        axes[0].text(bar.get_width() + 0.1, bar.get_y() + bar.get_height()/2,
+                                    '✕ (difilter)', va='center', fontsize=7, color='red')
+            else:
+                axes[0].text(0.5, 0.5, 'Tidak ada data', ha='center', va='center')
+            
+            # Kanan: Sesudah filter
+            if top_filtered:
+                words_filtered = [w for w, v in top_filtered]
+                vals_filtered = [v for w, v in top_filtered]
+                bars2 = axes[1].barh(words_filtered[::-1], vals_filtered[::-1], color='#66BB6A')
+                axes[1].set_title(f'{hotel_pilihan}\nSESUDAH Filter (Informatif)', fontsize=10, fontweight='bold')
+                axes[1].set_xlabel('Nilai TF-IDF')
+                axes[1].grid(axis='x', linestyle='--', alpha=0.3)
+                for bar, val in zip(bars2, vals_filtered[::-1]):
+                    axes[1].text(bar.get_width() + 0.1, bar.get_y() + bar.get_height()/2,
+                                f'{val:.2f}', va='center', fontsize=8)
+            else:
+                axes[1].text(0.5, 0.5, 'Tidak ada kata yang lolos filter', ha='center', va='center')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Tampilkan daftar kata yang difilter
+            filtered_words = [w for w, v in top_asli if w in KATA_FILTER]
+            if filtered_words:
+                with st.expander(f"📋 Kata yang difilter ({len(filtered_words)} kata)"):
+                    # Kelompokkan berdasarkan kategori
+                    kota_hotel = [w for w in filtered_words if w in ['singkawang', 'skw', 'mahkota', 'swiss', 'belhotel', 'dayang', 'horison', 'ultima', 'swissbell', 'resort', 'hotel']]
+                    umum = [w for w in filtered_words if w not in kota_hotel]
+                    if kota_hotel:
+                        st.write(f"**Nama Kota/Hotel:** {', '.join(kota_hotel)}")
+                    if umum:
+                        st.write(f"**Kata Umum:** {', '.join(umum)}")
+        else:
+            st.info("Tidak ada data top fitur yang tersedia.")
 
 # =============================================================================
 # HALAMAN 3: COBA LABEL SENDIRI (interaktif)
@@ -231,15 +356,19 @@ else:
     teks = st.text_area("Komentar", value=default_text, height=100)
 
     if st.button("Analisis Sentimen"):
-        raw_pos, raw_neg = unduh_inset()
-        kata_positif, kata_negatif = bangun_leksikon_hybrid(raw_pos, raw_neg)
-        label = labeling_hybrid(teks, kata_positif, kata_negatif)
-        warna_label = WARNA.get(label, "#999999")
-        st.markdown(
-            f"<h3 style='color:{warna_label}'>Label: {label}</h3>",
-            unsafe_allow_html=True,
-        )
+        with st.spinner("Memproses..."):
+            raw_pos, raw_neg = unduh_inset()
+            kata_positif, kata_negatif = bangun_leksikon_hybrid(raw_pos, raw_neg)
+            label = labeling_hybrid(teks, kata_positif, kata_negatif)
+            warna_label = WARNA.get(label, "#999999")
+            st.markdown(
+                f"<h3 style='color:{warna_label}'>Label: {label}</h3>",
+                unsafe_allow_html=True,
+            )
 
+# =============================================================================
+# FOOTER
+# =============================================================================
 st.markdown("---")
 st.caption(
     "Tugas Akhir — Hikmal, NIM 3202302015, D3 Manajemen Informatika, "
