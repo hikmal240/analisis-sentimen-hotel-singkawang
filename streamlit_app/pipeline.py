@@ -42,12 +42,17 @@ TFIDF_PARAMS = dict(
 # =============================================================================
 # 1. MEMUAT DATA HASIL PREPROCESSING (CSV)
 # =============================================================================
-def muat_csv_preprocessing(path: str, hotel_name: str) -> pd.DataFrame:
+def muat_csv_preprocessing(path: str, hotel_name: str) -> tuple:
     """
     Parser khusus untuk CSV 'No,Hotel,Komentar Asli,Hasil Preprocessing,Label'
     yang kolom 'Komentar Asli'-nya sering mengandung koma tanpa quoting yang
     konsisten (CSV reader standar sering salah bagi kolom di kasus ini).
     """
+    # Pastikan path absolut berbasis direktori script jika diberikan path relatif
+    if not os.path.isabs(path):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base_dir, path)
+
     raw = open(path, encoding='utf-8-sig').read().replace('\r\n', '\n')
     body = raw.split('\n', 1)[1]  # buang header
     record_start = re.compile(r'(?=^\d+,' + re.escape(hotel_name) + r',)', re.MULTILINE)
@@ -268,21 +273,6 @@ def jalankan_pipeline(csv_files: dict, progress_cb=None) -> dict:
     """
     Jalankan seluruh pipeline: muat CSV -> label hybrid -> split -> TF-IDF ->
     Multinomial NB -> evaluasi, untuk setiap hotel di csv_files.
-
-    Parameters
-    ----------
-    csv_files : dict
-        {nama_hotel: path_csv}
-    progress_cb : callable, optional
-        Dipanggil dengan progress_cb(pesan: str) untuk update UI (mis. st.write).
-
-    Returns
-    -------
-    dict dengan keys:
-        'clean_data'   : {hotel: DataFrame(no, komentar_asli, komentar, label_lama, label)}
-        'results'      : {hotel: dict hasil latih_dan_evaluasi()}
-        'lexicon_size' : (jumlah kata positif, jumlah kata negatif)
-        'warnings'     : list pesan warning (mis. baris gagal parse)
     """
     def log(msg):
         if progress_cb:
