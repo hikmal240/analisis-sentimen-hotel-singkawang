@@ -38,21 +38,55 @@ TFIDF_PARAMS = dict(
     sublinear_tf=True,
 )
 
+# =============================================================================
+# FILTER KATA UNTUK VISUALISASI TF-IDF (TIDAK MENGUBAH PERHITUNGAN)
+# =============================================================================
+KATA_FILTER = {
+    # Nama Kota & Hotel
+    'singkawang', 'skw', 'mahkota', 'swiss', 'belhotel', 'dayang', 'horison',
+    'ultima', 'swissbell', 'resort', 'hotel',
+    
+    # Kata umum (tidak bermakna sentimen)
+    'sini', 'situ', 'sana', 'kemari', 'pernah', 'sudah', 'masih', 'akan',
+    'berapi', 'kalau', 'kalo', 'bisa', 'dapat', 'ingin', 'mau', 'nak',
+    'mok', 'maok', 'tadi', 'baru', 'dulu', 'kini', 'nanti', 'besok',
+    'kemarin', 'hari', 'minggu', 'bulan', 'tahun',
+    'berapa', 'brapa', 'brp', 'mana', 'dimana', 'kemana', 'kapan', 'kpn',
+    'saya', 'aku', 'kamu', 'anda', 'kami', 'kita', 'mereka', 'dia',
+    'gue', 'gw', 'aq', 'sy', 'kakak', 'bang', 'mas', 'pak', 'bu', 'ce', 'ci',
+    'enggak', 'gak', 'ga', 'nggak', 'gk', 'tdk',
+    
+    # Kata penghubung
+    'yang', 'dan', 'atau', 'tapi', 'tetapi', 'namun', 'karena', 'sebab',
+    'agar', 'supaya', 'jika', 'bila', 'ketika', 'saat', 'selama',
+    'setelah', 'sebelum', 'meskipun', 'walaupun', 'bahwa', 'sehingga',
+    'hingga', 'sampai', 'di', 'ke', 'dari', 'pada', 'dalam', 'untuk',
+    'dengan', 'oleh', 'tentang', 'antara', 'selain', 'terhadap', 'bagi',
+    'demi', 'sejak', 'sesuai', 'melalui', 'via',
+    
+    # Filler media sosial
+    'aja', 'sih', 'nih', 'dong', 'deh', 'kan', 'lah', 'tuh', 'tu', 'mah',
+    'si', 'kok', 'nah', 'wah', 'duh', 'aduh', 'wow', 'eh', 'hmm', 'hm',
+    'hah', 'ya', 'yah', 'woy', 'cuy', 'bro', 'sis', 'guys',
+    
+    # Kata kerja umum
+    'jalan', 'pergi', 'datang', 'pulang', 'tinggal', 'liburan',
+    'wisata', 'makan', 'minum', 'tidur', 'mandi', 'sholat', 'ibadah',
+    
+    # Prefiks/stemming yang tidak informatif
+    'inap', 'nginap', 'menginap', 'layan',
+}
+
 
 # =============================================================================
 # 1. MEMUAT DATA HASIL PREPROCESSING (CSV)
 # =============================================================================
-def muat_csv_preprocessing(path: str, hotel_name: str) -> tuple:
+def muat_csv_preprocessing(path: str, hotel_name: str) -> pd.DataFrame:
     """
     Parser khusus untuk CSV 'No,Hotel,Komentar Asli,Hasil Preprocessing,Label'
     yang kolom 'Komentar Asli'-nya sering mengandung koma tanpa quoting yang
     konsisten (CSV reader standar sering salah bagi kolom di kasus ini).
     """
-    # Pastikan path absolut berbasis direktori script jika diberikan path relatif
-    if not os.path.isabs(path):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(base_dir, path)
-
     raw = open(path, encoding='utf-8-sig').read().replace('\r\n', '\n')
     body = raw.split('\n', 1)[1]  # buang header
     record_start = re.compile(r'(?=^\d+,' + re.escape(hotel_name) + r',)', re.MULTILINE)
@@ -223,13 +257,11 @@ def labeling_hybrid(text: str, kata_positif: dict, kata_negatif: dict, min_evide
 # =============================================================================
 def latih_dan_evaluasi(df: pd.DataFrame) -> dict:
     """Split 80:20 stratified -> TF-IDF (fit hanya di train) -> Multinomial NB -> evaluasi."""
-    
-    # KONVERSI EKSPLISIT ke NumPy Array (mencegah error PyArrow pada Python 3.14/Streamlit Cloud)
-    texts = np.array(df['komentar'].astype(str).tolist(), dtype=object)
-    y = np.array(df['label'].astype(str).tolist(), dtype=object)
+    texts = df['komentar'].astype(str).values
+    y = df['label'].astype(str)
 
-    unique_labels, counts = np.unique(y, return_counts=True)
-    bisa_stratify = (len(unique_labels) >= 2) and (counts.min() >= 2)
+    nilai_kelas = y.value_counts()
+    bisa_stratify = (y.nunique() >= 2) and (nilai_kelas.min() >= 2)
 
     X_train_text, X_test_text, y_train, y_test = train_test_split(
         texts, y, test_size=0.20, random_state=RANDOM_STATE,
@@ -260,12 +292,47 @@ def latih_dan_evaluasi(df: pd.DataFrame) -> dict:
     }
 
 
-def top_fitur_tfidf(res: dict, n: int = 10):
-    """Ambil n fitur TF-IDF teratas (berdasarkan total bobot di data latih)."""
+def top_fitur_tfidf(res: dict, n: int = 10, filter_kata: bool = True) -> dict:
+    """
+    Ambil n fitur TF-IDF teratas (berdasarkan total bobot di data latih).
+    
+    Parameters
+    ----------
+    res : dict
+        Hasil dari latih_dan_evaluasi()
+    n : int
+        Jumlah fitur yang diambil
+    filter_kata : bool
+        Jika True, filter kata tidak informatif (hanya untuk visualisasi)
+    
+    Returns
+    -------
+    dict dengan keys:
+        'top_asli' : list of (kata, bobot) asli
+        'top_filtered' : list of (kata, bobot) setelah filter
+    """
     feature_names = np.array(res['tfidf'].get_feature_names_out())
     sums = np.asarray(res['X_train'].sum(axis=0)).flatten()
+    
+    # Top asli (tanpa filter)
     top_idx = sums.argsort()[-n:][::-1]
-    return list(zip(feature_names[top_idx], sums[top_idx]))
+    top_asli = list(zip(feature_names[top_idx], sums[top_idx]))
+    
+    # Top setelah filter (jika diminta)
+    if filter_kata:
+        filtered = []
+        for name, val in zip(feature_names, sums):
+            if name not in KATA_FILTER and len(name) >= 3:
+                filtered.append((name, val))
+        filtered.sort(key=lambda x: x[1], reverse=True)
+        top_filtered = filtered[:n]
+    else:
+        top_filtered = top_asli
+    
+    return {
+        'top_asli': top_asli,
+        'top_filtered': top_filtered,
+    }
 
 
 # =============================================================================
@@ -275,6 +342,21 @@ def jalankan_pipeline(csv_files: dict, progress_cb=None) -> dict:
     """
     Jalankan seluruh pipeline: muat CSV -> label hybrid -> split -> TF-IDF ->
     Multinomial NB -> evaluasi, untuk setiap hotel di csv_files.
+
+    Parameters
+    ----------
+    csv_files : dict
+        {nama_hotel: path_csv}
+    progress_cb : callable, optional
+        Dipanggil dengan progress_cb(pesan: str) untuk update UI (mis. st.write).
+
+    Returns
+    -------
+    dict dengan keys:
+        'clean_data'   : {hotel: DataFrame(no, komentar_asli, komentar, label_lama, label)}
+        'results'      : {hotel: dict hasil latih_dan_evaluasi()}
+        'lexicon_size' : (jumlah kata positif, jumlah kata negatif)
+        'warnings'     : list pesan warning (mis. baris gagal parse)
     """
     def log(msg):
         if progress_cb:
@@ -299,7 +381,11 @@ def jalankan_pipeline(csv_files: dict, progress_cb=None) -> dict:
     results = {}
     for hotel_name, df in clean_data.items():
         log(f"Melatih Multinomial Naive Bayes: {hotel_name}...")
-        results[hotel_name] = latih_dan_evaluasi(df)
+        res = latih_dan_evaluasi(df)
+        # Tambahkan top fitur TF-IDF (asli dan filtered)
+        res['top_fitur'] = top_fitur_tfidf(res, n=10, filter_kata=True)
+        res['top_fitur_asli'] = top_fitur_tfidf(res, n=10, filter_kata=False)
+        results[hotel_name] = res
 
     return {
         'clean_data': clean_data,
