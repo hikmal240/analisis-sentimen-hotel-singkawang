@@ -223,11 +223,13 @@ def labeling_hybrid(text: str, kata_positif: dict, kata_negatif: dict, min_evide
 # =============================================================================
 def latih_dan_evaluasi(df: pd.DataFrame) -> dict:
     """Split 80:20 stratified -> TF-IDF (fit hanya di train) -> Multinomial NB -> evaluasi."""
-    texts = df['komentar'].astype(str).values
-    y = df['label'].astype(str)
+    
+    # KONVERSI EKSPLISIT ke NumPy Array (mencegah error PyArrow pada Python 3.14/Streamlit Cloud)
+    texts = np.array(df['komentar'].astype(str).tolist(), dtype=object)
+    y = np.array(df['label'].astype(str).tolist(), dtype=object)
 
-    nilai_kelas = y.value_counts()
-    bisa_stratify = (y.nunique() >= 2) and (nilai_kelas.min() >= 2)
+    unique_labels, counts = np.unique(y, return_counts=True)
+    bisa_stratify = (len(unique_labels) >= 2) and (counts.min() >= 2)
 
     X_train_text, X_test_text, y_train, y_test = train_test_split(
         texts, y, test_size=0.20, random_state=RANDOM_STATE,
