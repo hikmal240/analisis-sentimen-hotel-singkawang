@@ -282,7 +282,7 @@ elif halaman == "Detail per Hotel":
             "Filter Berdasarkan Label Sentimen", ["Positif", "Netral", "Negatif"],
             default=["Positif", "Netral", "Negatif"],
         )
-        tampil = df[df["label"].isin(filter_label)][["komentar_asli", "komentar", "label_lama", "label"]]
+        tampil = df[df["label"].isin(filter_label)][["no", "komentar_asli", "komentar", "label_lama", "label"]]
         st.dataframe(tampil, use_container_width=True, hide_index=True)
         st.download_button(
             "⬇️ Unduh CSV Hasil Relabel Hotel Ini",
