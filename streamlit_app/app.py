@@ -35,10 +35,9 @@ st.set_page_config(
     layout="wide",
 )
 
-# CSS Kustom untuk Animasi Icon & Visual Card
+# CSS Kustom untuk Animasi Icon Header & Sidebar
 st.markdown("""
 <style>
-    /* Animasi Pulse/Bouncing pada Icon Metric Card */
     @keyframes pulse-icon {
         0% { transform: scale(1); }
         50% { transform: scale(1.15); }
@@ -49,16 +48,6 @@ st.markdown("""
         0% { transform: translateY(0px); }
         50% { transform: translateY(-6px); }
         100% { transform: translateY(0px); }
-    }
-
-    /* Style Kartu Ringkasan */
-    .metric-card {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 15px;
-        border-left: 5px solid #1f77b4;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        margin-bottom: 15px;
     }
 
     .animated-icon {
@@ -79,7 +68,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Mengambil direktori tempat file app.py berada secara otomatis
+# Path Otomatis (Anti FileNotFoundError di Streamlit Cloud)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CSV_FILES = {
@@ -158,21 +147,17 @@ if halaman == "Ringkasan Semua Hotel":
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-        st.metric("Total Komentar", f"{dist_total['n_total']:,}")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.metric("Total Komentar", f"{dist_total['n_total']:,}")
     with col2:
-        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-        st.metric("Rata-rata Accuracy", f"{avg_acc:.2f}%")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.metric("Rata-rata Accuracy", f"{avg_acc:.2f}%")
     with col3:
-        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-        st.metric("Sentimen Dominan", max(dist_total["counts"], key=dist_total["counts"].get))
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.metric("Sentimen Dominan", max(dist_total["counts"], key=dist_total["counts"].get))
     with col4:
-        st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
-        st.metric("vs Random Baseline", f"+{avg_acc - 33.3:.1f} poin")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.metric("vs Random Baseline", f"+{avg_acc - 33.3:.1f} poin")
 
     st.subheader("📋 Rekapitulasi Performa per Hotel")
     rows = []
@@ -218,9 +203,15 @@ elif halaman == "Detail per Hotel":
     res = results[hotel_pilihan]
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Komentar", len(df))
-    col2.metric("Accuracy", f"{res['accuracy']*100:.2f}%")
-    col3.metric("Sentimen Dominan", df["label"].value_counts().idxmax())
+    with col1:
+        with st.container(border=True):
+            st.metric("Total Komentar", len(df))
+    with col2:
+        with st.container(border=True):
+            st.metric("Accuracy", f"{res['accuracy']*100:.2f}%")
+    with col3:
+        with st.container(border=True):
+            st.metric("Sentimen Dominan", df["label"].value_counts().idxmax())
 
     tab1, tab2, tab3, tab4 = st.tabs(
         ["📊 Distribusi Sentimen", "🎯 Confusion Matrix", "🔤 Top Fitur TF-IDF", "📑 Data Komentar"]
