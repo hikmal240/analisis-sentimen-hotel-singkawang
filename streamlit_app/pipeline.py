@@ -482,58 +482,6 @@ def main_interactive():
 
             with col_tbl_tf:
                 st.dataframe(top_df, use_container_width=True, hide_index=True)
-def muat_csv_preprocessing(path: str, hotel_name: str) -> tuple:
-    """
-    Parser CSV yang aman dari karakter new line dan koma di dalam kolom.
-    """
-    rows = []
-    gagal = 0
-    
-    with open(path, encoding='utf-8-sig') as f:
-        reader = csv.reader(f)
-        try:
-            header = next(reader)  # Buang header
-        except StopIteration:
-            return pd.DataFrame(rows), 0
-
-        for row in reader:
-            if not row or len(row) < 5:
-                # Coba dengan regex jika baris dipisah tanpa quoting standar
-                raw_line = ",".join(row)
-                m = re.match(r'^(\d+),([^,]+),(.*),([^,]*),([A-Za-z]+)\s*$', raw_line, re.DOTALL)
-                if m:
-                    no, h_name, asli, prep, label = m.groups()
-                    rows.append({
-                        'no': no.strip(),
-                        'komentar_asli': asli.strip(),
-                        'komentar': prep.strip(),
-                        'label_lama': label.strip().capitalize(),
-                    })
-                else:
-                    gagal += 1
-                continue
-
-            # Jika baris memiiki setidaknya 5 kolom standar
-            no = row[0].strip()
-            # Ambil kolom label dari elemen paling terakhir
-            label = row[-1].strip().capitalize()
-            # Kolom preprocessing adalah elemen sebelum label
-            prep = row[-2].strip()
-            # Komentar asli gabungan dari kolom ke-3 hingga sebelum prep
-            asli = ",".join(row[2:-2]).strip()
-
-            if label in ['Positif', 'Negatif', 'Netral']:
-                rows.append({
-                    'no': no,
-                    'komentar_asli': asli,
-                    'komentar': prep,
-                    'label_lama': label,
-                })
-            else:
-                gagal += 1
-
-    df = pd.DataFrame(rows)
-    return df, gagal
 
 
 if __name__ == '__main__':
