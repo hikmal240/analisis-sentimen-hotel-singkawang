@@ -38,45 +38,6 @@ TFIDF_PARAMS = dict(
     sublinear_tf=True,
 )
 
-# =============================================================================
-# FILTER KATA UNTUK VISUALISASI TF-IDF (TIDAK MENGUBAH PERHITUNGAN)
-# =============================================================================
-KATA_FILTER = {
-    # Nama Kota & Hotel
-    'singkawang', 'skw', 'mahkota', 'swiss', 'belhotel', 'dayang', 'horison',
-    'ultima', 'swissbell', 'resort', 'hotel',
-    
-    # Kata umum (tidak bermakna sentimen)
-    'sini', 'situ', 'sana', 'kemari', 'pernah', 'sudah', 'masih', 'akan',
-    'berapi', 'kalau', 'kalo', 'bisa', 'dapat', 'ingin', 'mau', 'nak',
-    'mok', 'maok', 'tadi', 'baru', 'dulu', 'kini', 'nanti', 'besok',
-    'kemarin', 'hari', 'minggu', 'bulan', 'tahun',
-    'berapa', 'brapa', 'brp', 'mana', 'dimana', 'kemana', 'kapan', 'kpn',
-    'saya', 'aku', 'kamu', 'anda', 'kami', 'kita', 'mereka', 'dia',
-    'gue', 'gw', 'aq', 'sy', 'kakak', 'bang', 'mas', 'pak', 'bu', 'ce', 'ci',
-    'enggak', 'gak', 'ga', 'nggak', 'gk', 'tdk',
-    
-    # Kata penghubung
-    'yang', 'dan', 'atau', 'tapi', 'tetapi', 'namun', 'karena', 'sebab',
-    'agar', 'supaya', 'jika', 'bila', 'ketika', 'saat', 'selama',
-    'setelah', 'sebelum', 'meskipun', 'walaupun', 'bahwa', 'sehingga',
-    'hingga', 'sampai', 'di', 'ke', 'dari', 'pada', 'dalam', 'untuk',
-    'dengan', 'oleh', 'tentang', 'antara', 'selain', 'terhadap', 'bagi',
-    'demi', 'sejak', 'sesuai', 'melalui', 'via',
-    
-    # Filler media sosial
-    'aja', 'sih', 'nih', 'dong', 'deh', 'kan', 'lah', 'tuh', 'tu', 'mah',
-    'si', 'kok', 'nah', 'wah', 'duh', 'aduh', 'wow', 'eh', 'hmm', 'hm',
-    'hah', 'ya', 'yah', 'woy', 'cuy', 'bro', 'sis', 'guys',
-    
-    # Kata kerja umum
-    'jalan', 'pergi', 'datang', 'pulang', 'tinggal', 'liburan',
-    'wisata', 'makan', 'minum', 'tidur', 'mandi', 'sholat', 'ibadah',
-    
-    # Prefiks/stemming yang tidak informatif
-    'inap', 'nginap', 'menginap', 'layan',
-}
-
 
 # =============================================================================
 # 1. MEMUAT DATA HASIL PREPROCESSING (CSV)
@@ -292,47 +253,12 @@ def latih_dan_evaluasi(df: pd.DataFrame) -> dict:
     }
 
 
-def top_fitur_tfidf(res: dict, n: int = 10, filter_kata: bool = True) -> dict:
-    """
-    Ambil n fitur TF-IDF teratas (berdasarkan total bobot di data latih).
-    
-    Parameters
-    ----------
-    res : dict
-        Hasil dari latih_dan_evaluasi()
-    n : int
-        Jumlah fitur yang diambil
-    filter_kata : bool
-        Jika True, filter kata tidak informatif (hanya untuk visualisasi)
-    
-    Returns
-    -------
-    dict dengan keys:
-        'top_asli' : list of (kata, bobot) asli
-        'top_filtered' : list of (kata, bobot) setelah filter
-    """
+def top_fitur_tfidf(res: dict, n: int = 10):
+    """Ambil n fitur TF-IDF teratas (berdasarkan total bobot di data latih)."""
     feature_names = np.array(res['tfidf'].get_feature_names_out())
     sums = np.asarray(res['X_train'].sum(axis=0)).flatten()
-    
-    # Top asli (tanpa filter)
     top_idx = sums.argsort()[-n:][::-1]
-    top_asli = list(zip(feature_names[top_idx], sums[top_idx]))
-    
-    # Top setelah filter (jika diminta)
-    if filter_kata:
-        filtered = []
-        for name, val in zip(feature_names, sums):
-            if name not in KATA_FILTER and len(name) >= 3:
-                filtered.append((name, val))
-        filtered.sort(key=lambda x: x[1], reverse=True)
-        top_filtered = filtered[:n]
-    else:
-        top_filtered = top_asli
-    
-    return {
-        'top_asli': top_asli,
-        'top_filtered': top_filtered,
-    }
+    return list(zip(feature_names[top_idx], sums[top_idx]))
 
 
 # =============================================================================
@@ -381,11 +307,7 @@ def jalankan_pipeline(csv_files: dict, progress_cb=None) -> dict:
     results = {}
     for hotel_name, df in clean_data.items():
         log(f"Melatih Multinomial Naive Bayes: {hotel_name}...")
-        res = latih_dan_evaluasi(df)
-        # Tambahkan top fitur TF-IDF (asli dan filtered)
-        res['top_fitur'] = top_fitur_tfidf(res, n=10, filter_kata=True)
-        res['top_fitur_asli'] = top_fitur_tfidf(res, n=10, filter_kata=False)
-        results[hotel_name] = res
+        results[hotel_name] = latih_dan_evaluasi(df)
 
     return {
         'clean_data': clean_data,
