@@ -1,16 +1,13 @@
 """
 pipeline.py
 =============================================================================
-Modul inti (importable) — Analisis Sentimen Hotel di Kota Singkawang
+Modul inti (importable) & Aplikasi Interaktif — Analisis Sentimen Hotel Singkawang
 Hybrid Lexicon Labeling + Multinomial Naive Bayes
 
-Direfactor dari lanjutan_analisis_hybrid_lexicon.py agar semua langkah
-(labeling, split, TF-IDF, training, evaluasi) dibungkus jadi fungsi yang
-bisa dipanggil dari app.py (Streamlit), notebook, atau script lain,
-BUKAN kode top-level yang otomatis jalan saat modul di-import.
-
-Fungsi utama yang dipakai dari luar:
-    jalankan_pipeline(csv_files: dict) -> dict
+Fitur:
+1. Fungsi inti yang importable untuk pipeline data (labeling, TF-IDF, training, evaluasi).
+2. Tampilan interaktif Streamlit bawaan jika dijalankan secara langsung.
+3. Filtering kata non-informatif (stop words domain) pada visualisasi TF-IDF.
 =============================================================================
 """
 
@@ -23,11 +20,20 @@ from collections import Counter
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+
+# Streamlit opsional jika hanya digunakan sebagai modul
+try:
+    import streamlit as st
+    HAS_STREAMLIT = True
+except ImportError:
+    HAS_STREAMLIT = False
 
 RANDOM_STATE = 42
 
@@ -38,17 +44,55 @@ TFIDF_PARAMS = dict(
     sublinear_tf=True,
 )
 
+# =============================================================================
+# FILTER KATA NON-INFORMATIF (STOP WORDS DOMAIN HOTELS & LOKASI)
+# =============================================================================
+KATA_FILTER = {
+    # Nama Kota & Hotel
+    'singkawang', 'skw', 'mahkota', 'swiss', 'belhotel', 'dayang', 'horison',
+    'ultima', 'swissbell', 'resort', 'hotel', 'villa', 'penginapan',
+    
+    # Kata umum / lokasi / waktu
+    'sini', 'situ', 'sana', 'kemari', 'pernah', 'sudah', 'masih', 'akan',
+    'berapi', 'kalau', 'kalo', 'bisa', 'dapat', 'ingin', 'mau', 'nak',
+    'mok', 'maok', 'tadi', 'baru', 'dulu', 'kini', 'nanti', 'besok',
+    'kemarin', 'hari', 'minggu', 'bulan', 'tahun', 'malam',
+    'berapa', 'brapa', 'brp', 'mana', 'dimana', 'kemana', 'kapan', 'kpn',
+    'saya', 'aku', 'kamu', 'anda', 'kami', 'kita', 'mereka', 'dia',
+    'gue', 'gw', 'aq', 'sy', 'kakak', 'bang', 'mas', 'pak', 'bu', 'ce', 'ci',
+    'enggak', 'gak', 'ga', 'ngggak', 'gk', 'tdk', 'ada', 'ini', 'itu',
+    
+    # Kata penghubung & kata depan
+    'yang', 'dan', 'atau', 'tapi', 'tetapi', 'namun', 'karena', 'sebab',
+    'agar', 'supaya', 'jika', 'bila', 'ketika', 'saat', 'selama',
+    'setelah', 'sebelum', 'meskipun', 'walaupun', 'bahwa', 'sehingga',
+    'hingga', 'sampai', 'di', 'ke', 'dari', 'pada', 'dalam', 'untuk',
+    'dengan', 'oleh', 'tentang', 'antara', 'selain', 'terhadap', 'bagi',
+    'demi', 'sejak', 'sesuai', 'melalui', 'via',
+    
+    # Filler media sosial & percakapan
+    'aja', 'sih', 'nih', 'dong', 'deh', 'kan', 'lah', 'tuh', 'tu', 'mah',
+    'si', 'kok', 'nah', 'wah', 'duh', 'aduh', 'wow', 'eh', 'hmm', 'hm',
+    'hah', 'ya', 'yah', 'woy', 'cuy', 'bro', 'sis', 'guys',
+    
+    # Kata kerja umum / aktivitas umum
+    'jalan', 'pergi', 'datang', 'pulang', 'tinggal', 'liburan',
+    'wisata', 'makan', 'minum', 'tidur', 'mandi', 'sholat', 'ibadah',
+    'inap', 'nginap', 'menginap', 'layan', 'lokasi', 'tempat'
+}
 
 # =============================================================================
 # 1. MEMUAT DATA HASIL PREPROCESSING (CSV)
 # =============================================================================
-def muat_csv_preprocessing(path: str, hotel_name: str) -> pd.DataFrame:
+def muat_csv_preprocessing(path: str, hotel_name: str) -> tuple:
     """
     Parser khusus untuk CSV 'No,Hotel,Komentar Asli,Hasil Preprocessing,Label'
     yang kolom 'Komentar Asli'-nya sering mengandung koma tanpa quoting yang
     konsisten (CSV reader standar sering salah bagi kolom di kasus ini).
     """
-    raw = open(path, encoding='utf-8-sig').read().replace('\r\n', '\n')
+    with open(path, encoding='utf-8-sig') as f:
+        raw = f.read().replace('\r\n', '\n')
+        
     body = raw.split('\n', 1)[1]  # buang header
     record_start = re.compile(r'(?=^\d+,' + re.escape(hotel_name) + r',)', re.MULTILINE)
     parts = [p.strip('\n') for p in record_start.split(body) if p.strip()]
@@ -253,36 +297,27 @@ def latih_dan_evaluasi(df: pd.DataFrame) -> dict:
     }
 
 
-def top_fitur_tfidf(res: dict, n: int = 10):
-    """Ambil n fitur TF-IDF teratas (berdasarkan total bobot di data latih)."""
+def top_fitur_tfidf(res: dict, n: int = 10, filter_words: set = KATA_FILTER) -> list:
+    """Ambil n fitur TF-IDF teratas setelah memfilter kata yang tidak informatif."""
     feature_names = np.array(res['tfidf'].get_feature_names_out())
     sums = np.asarray(res['X_train'].sum(axis=0)).flatten()
-    top_idx = sums.argsort()[-n:][::-1]
-    return list(zip(feature_names[top_idx], sums[top_idx]))
+    
+    filtered = []
+    for name, val in zip(feature_names, sums):
+        if name not in filter_words and len(name) >= 3:
+            filtered.append((name, val))
+            
+    filtered.sort(key=lambda x: x[1], reverse=True)
+    return filtered[:n]
 
 
 # =============================================================================
-# 4. FUNGSI UTAMA — dipanggil dari app.py
+# 4. FUNGSI UTAMA — dipanggil dari luar
 # =============================================================================
 def jalankan_pipeline(csv_files: dict, progress_cb=None) -> dict:
     """
     Jalankan seluruh pipeline: muat CSV -> label hybrid -> split -> TF-IDF ->
     Multinomial NB -> evaluasi, untuk setiap hotel di csv_files.
-
-    Parameters
-    ----------
-    csv_files : dict
-        {nama_hotel: path_csv}
-    progress_cb : callable, optional
-        Dipanggil dengan progress_cb(pesan: str) untuk update UI (mis. st.write).
-
-    Returns
-    -------
-    dict dengan keys:
-        'clean_data'   : {hotel: DataFrame(no, komentar_asli, komentar, label_lama, label)}
-        'results'      : {hotel: dict hasil latih_dan_evaluasi()}
-        'lexicon_size' : (jumlah kata positif, jumlah kata negatif)
-        'warnings'     : list pesan warning (mis. baris gagal parse)
     """
     def log(msg):
         if progress_cb:
@@ -328,3 +363,126 @@ def ringkasan_distribusi_total(clean_data: dict) -> dict:
         'pct': {k: v / n * 100 for k, v in total.items()},
         'n_total': n,
     }
+
+
+# =============================================================================
+# 5. TAMPILAN INTERAKTIF (STREAMLIT)
+# =============================================================================
+def main_interactive():
+    if not HAS_STREAMLIT:
+        print("Error: Streamlit belum terinstall. Install dengan 'pip install streamlit'.")
+        return
+
+    st.set_page_config(page_title="Pipeline Sentimen Hotel Singkawang", layout="wide", page_icon="🏨")
+    st.title("🏨 Analisis Sentimen Hotel Singkawang (Pipeline Interaktif)")
+    st.markdown("Aplikasi interaktif untuk melatih model Multinomial Naïve Bayes dengan Hybrid Lexicon Labeling.")
+
+    st.sidebar.header("📁 Unggah Dataset CSV")
+    uploaded_files = st.sidebar.file_uploader(
+        "Unggah file CSV Preprocessing (bisa multiple)",
+        type=["csv"],
+        accept_multiple_files=True
+    )
+
+    if uploaded_files:
+        temp_paths = {}
+        for file in uploaded_files:
+            # Ambil nama hotel dari nama file atau input manual
+            hotel_name = os.path.splitext(file.name)[0].replace("_", " ").title()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+                tmp.write(file.getvalue())
+                temp_paths[hotel_name] = tmp.name
+
+        if st.sidebar.button("🚀 Jalankan Pipeline", type="primary"):
+            status_box = st.empty()
+            
+            def update_progress(msg):
+                status_box.info(f"⏳ {msg}")
+
+            with st.spinner("Menjalankan Pipeline..."):
+                output = jalankan_pipeline(temp_paths, progress_cb=update_progress)
+                st.session_state['pipeline_output'] = output
+                status_box.success("✅ Pipeline selesai dijalankan!")
+
+    if 'pipeline_output' in st.session_state:
+        output = st.session_state['pipeline_output']
+        clean_data = output['clean_data']
+        results = output['results']
+        pos_size, neg_size = output['lexicon_size']
+
+        st.subheader("📊 Ringkasan Leksikon Hybrid")
+        col1, col2 = st.columns(2)
+        col1.metric("Kata Positif Dalam Leksikon", pos_size)
+        col2.metric("Kata Negatif Dalam Leksikon", neg_size)
+
+        if output['warnings']:
+            for w in output['warnings']:
+                st.warning(w)
+
+        st.divider()
+
+        # Tab Tampilan Interaktif
+        tab_dist, tab_detail, tab_tfidf = st.tabs(["📊 Distribusi Sentimen", "📈 Evaluasi Model", "🔤 Top TF-IDF Feature"])
+
+        with tab_dist:
+            dist_total = ringkasan_distribusi_total(clean_data)
+            col_chart, col_data = st.columns([1.5, 1])
+            
+            with col_chart:
+                fig, ax = plt.subplots(figsize=(6, 3.5))
+                df_dist = pd.DataFrame(list(dist_total['counts'].items()), columns=['Sentimen', 'Jumlah'])
+                sns.barplot(data=df_dist, x='Sentimen', y='Jumlah', palette='Set2', ax=ax)
+                ax.set_title("Distribusi Sentimen Keseluruhan")
+                st.pyplot(fig)
+                
+            with col_data:
+                st.write("**Detail Angka:**")
+                st.write(f"Total Ulasan: **{dist_total['n_total']}**")
+                for k, v in dist_total['pct'].items():
+                    st.write(f"- {k}: {dist_total['counts'][k]} ({v:.2f}%)")
+
+        with tab_detail:
+            hotel_pilihan = st.selectbox("Pilih Hotel untuk Detail Evaluasi:", list(results.keys()))
+            res = results[hotel_pilihan]
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Akurasi Model", f"{res['accuracy']*100:.2f}%")
+            c2.metric("Data Latih (Train)", res['n_train'])
+            c3.metric("Data Uji (Test)", res['n_test'])
+
+            col_cm, col_rep = st.columns([1, 1.2])
+            with col_cm:
+                st.markdown("**Confusion Matrix**")
+                fig, ax = plt.subplots(figsize=(4, 3))
+                sns.heatmap(res['cm'], annot=True, fmt='d', cmap='Blues',
+                            xticklabels=res['labels'], yticklabels=res['labels'], ax=ax)
+                ax.set_xlabel("Prediksi")
+                ax.set_ylabel("Aktual")
+                st.pyplot(fig)
+
+            with col_rep:
+                st.markdown("**Classification Report**")
+                st.text(res['report_str'])
+
+        with tab_tfidf:
+            hotel_tfidf = st.selectbox("Pilih Hotel untuk Top Kata TF-IDF:", list(results.keys()), key="tfidf_select")
+            res_tfidf = results[hotel_tfidf]
+
+            st.caption("💡 Kata-kata umum/filler (nama hotel, kota, kata sambung) telah difilter agar lebih fokus pada topik & kualitas layanan.")
+            
+            top10 = top_fitur_tfidf(res_tfidf, n=10)
+            top_df = pd.DataFrame(top10, columns=["Kata/Frasa", "Bobot TF-IDF"])
+
+            col_chart_tf, col_tbl_tf = st.columns([1.5, 1])
+            with col_chart_tf:
+                fig, ax = plt.subplots(figsize=(6, 3.5))
+                sns.barplot(data=top_df.iloc[::-1], x="Bobot TF-IDF", y="Kata/Frasa", palette="viridis", ax=ax)
+                ax.set_title(f"Top 10 TF-IDF Informatif — {hotel_tfidf}")
+                st.pyplot(fig)
+
+            with col_tbl_tf:
+                st.dataframe(top_df, use_container_width=True, hide_index=True)
+
+
+if __name__ == '__main__':
+    main_interactive()
