@@ -2,12 +2,19 @@
 app.py
 =============================================================================
 Streamlit App — Analisis Sentimen Hotel di Kota Singkawang
-Hybrid Lexicon Labeling + Multinomial Naive Bayes
-
-Jalankan lokal   : streamlit run app.py
-Deploy           : Streamlit Community Cloud (share.streamlit.io), main file app.py
 =============================================================================
 """
+
+import sys
+import os
+from pathlib import Path
+
+# 🔥 CRITICAL FIX: Tambahkan path project ke sys.path
+# Ini penting untuk menemukan pipeline.py
+BASE_DIR = Path(__file__).resolve().parent  # streamlit_app/
+ROOT_DIR = BASE_DIR.parent                  # root project
+sys.path.insert(0, str(BASE_DIR))           # tambahkan streamlit_app ke path
+sys.path.insert(0, str(ROOT_DIR))           # tambahkan root ke path
 
 import numpy as np
 import pandas as pd
@@ -15,12 +22,18 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from pipeline import (
-    jalankan_pipeline, 
-    top_fitur_tfidf, 
-    ringkasan_distribusi_total,
-    KATA_FILTER  # Import untuk filter kata
-)
+# Import dari pipeline.py (sekarang di folder yang sama dengan app.py)
+try:
+    from pipeline import (
+        jalankan_pipeline, 
+        top_fitur_tfidf, 
+        ringkasan_distribusi_total,
+        KATA_FILTER
+    )
+except ImportError as e:
+    st.error(f"❌ Gagal import pipeline: {e}")
+    st.info("Pastikan file pipeline.py berada di folder yang sama dengan app.py")
+    st.stop()
 
 # =============================================================================
 # KONFIGURASI HALAMAN
@@ -31,12 +44,41 @@ st.set_page_config(
     layout="wide",
 )
 
-CSV_FILES = {
-    "Hotel Mahkota Singkawang": "data/HOTEL_MAHKOTA_SINGKAWANG.csv",
-    "Hotel Swiss-Belhotel Singkawang": "data/HOTEL_SWISS-BELHOTEL_SINGKAWANG.csv",
-    "Hotel Dayang Resort Singkawang": "data/HOTEL_DAYANG_RESORT_SINGKAWANG.csv",
-    "Hotel Horison Ultima Singkawang": "data/HOTEL_HORISON_ULTIMA_SINGKAWANG.csv",
+# =============================================================================
+# CARI FILE CSV
+# =============================================================================
+def cari_file_csv(nama_file):
+    """Cari file CSV di beberapa lokasi yang mungkin"""
+    lokasi = [
+        os.path.join('data', nama_file),                     # streamlit_app/data/
+        os.path.join('..', 'data', nama_file),               # ../data/
+        os.path.join(ROOT_DIR, 'data', nama_file),           # root/data/
+        os.path.join(BASE_DIR, 'data', nama_file),           # streamlit_app/data/
+        nama_file,                                            # folder yang sama
+    ]
+    for path in lokasi:
+        if os.path.exists(path):
+            return path
+    return None
+
+CSV_NAMES = {
+    "Hotel Mahkota Singkawang": "HOTEL_MAHKOTA_SINGKAWANG.csv",
+    "Hotel Swiss-Belhotel Singkawang": "HOTEL_SWISS_BELHOTEL_SINGKAWANG.csv",
+    "Hotel Dayang Resort Singkawang": "HOTEL_DAYANG_RESORT_SINGKAWANG.csv",
+    "Hotel Horison Ultima Singkawang": "HOTEL_HORISON_ULTIMA_SINGKAWANG.csv",
 }
+
+CSV_FILES = {}
+for hotel_name, fname in CSV_NAMES.items():
+    path = cari_file_csv(fname)
+    if path:
+        CSV_FILES[hotel_name] = path
+    else:
+        # Fallback: gunakan path di streamlit_app/data/
+        fallback_path = os.path.join(BASE_DIR, 'data', fname)
+        CSV_FILES[hotel_name] = fallback_path
+        st.warning(f"⚠️ File {fname} tidak ditemukan. Mencoba di {fallback_path}")
+
 WARNA = {"Positif": "#4CAF50", "Negatif": "#F44336", "Netral": "#2196F3"}
 
 st.title("📊 Analisis Sentimen Hotel di Kota Singkawang")
@@ -46,9 +88,9 @@ st.caption(
 )
 
 # =============================================================================
-# CACHE: jalankan pipeline sekali saja (bukan tiap interaksi UI)
+# CACHE: jalankan pipeline sekali saja
 # =============================================================================
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def _run_pipeline():
     log_box = st.empty()
     logs = []
@@ -57,9 +99,14 @@ def _run_pipeline():
         logs.append(msg)
         log_box.info("\n\n".join(logs[-5:]))
 
-    hasil = jalankan_pipeline(CSV_FILES, progress_cb=progress_cb)
-    log_box.empty()
-    return hasil
+    try:
+        hasil = jalankan_pipeline(CSV_FILES, progress_cb=progress_cb)
+        log_box.empty()
+        return hasil
+    except Exception as e:
+        log_box.empty()
+        st.error(f"❌ Error menjalankan pipeline: {e}")
+        st.stop()
 
 
 with st.spinner("Menjalankan pipeline (unduh leksikon, labeling, training)..."):
@@ -164,7 +211,6 @@ elif halaman == "Detail per Hotel":
     col2.metric("Accuracy", f"{res['accuracy']*100:.2f}%")
     col3.metric("Sentimen Dominan", df["label"].value_counts().idxmax())
 
-    # TAB 1-4: Sama seperti sebelumnya
     tab1, tab2, tab3, tab4, tab5 = st.tabs(
         ["Distribusi Sentimen", "Confusion Matrix", "Top Fitur TF-IDF", "Data Komentar", "Perbandingan Filter TF-IDF"]
     )
@@ -199,9 +245,6 @@ elif halaman == "Detail per Hotel":
         st.pyplot(fig)
         st.text("Classification Report:\n" + res["report_str"])
 
-    # =============================================================
-    # TAB 3: TOP FITUR TF-IDF (DENGAN FILTER)
-    # =============================================================
     with tab3:
         st.markdown("""
         **🔍 Top Fitur TF-IDF (Kata Informatif)**
@@ -213,12 +256,10 @@ elif halaman == "Detail per Hotel":
         perhitungan TF-IDF, model, maupun metrik evaluasi.
         """)
         
-        # Ambil data top fitur
         top_data = res.get('top_fitur', {})
         top_asli = top_data.get('top_asli', [])
         top_filtered = top_data.get('top_filtered', [])
         
-        # Tampilkan top setelah filter
         if top_filtered:
             col_a, col_b = st.columns([2, 3])
             with col_a:
@@ -233,7 +274,6 @@ elif halaman == "Detail per Hotel":
         else:
             st.info("Tidak ada kata yang lolos filter.")
         
-        # Toggle untuk melihat versi asli
         with st.expander("📋 Lihat Top TF-IDF Asli (tanpa filter)"):
             if top_asli:
                 top_df_asli = pd.DataFrame(top_asli, columns=["Kata/Frasa", "Bobot TF-IDF"])
@@ -242,7 +282,6 @@ elif halaman == "Detail per Hotel":
                 )
                 st.dataframe(top_df_asli, use_container_width=True, hide_index=True)
                 
-                # Visualisasi asli
                 fig, ax = plt.subplots(figsize=(8, 5))
                 colors = ['#EF5350' if w in KATA_FILTER else '#42A5F5' 
                          for w, v in top_asli[::-1]]
@@ -269,9 +308,6 @@ elif halaman == "Detail per Hotel":
             mime="text/csv",
         )
 
-    # =============================================================
-    # TAB 5: PERBANDINGAN FILTER TF-IDF (BARU)
-    # =============================================================
     with tab5:
         st.subheader("📊 Perbandingan Top TF-IDF Sebelum vs Sesudah Filter")
         st.markdown("""
@@ -286,10 +322,8 @@ elif halaman == "Detail per Hotel":
         top_filtered = top_data.get('top_filtered', [])[:10]
         
         if top_asli or top_filtered:
-            # Buat dua subplot side-by-side
             fig, axes = plt.subplots(1, 2, figsize=(14, 5))
             
-            # Kiri: Sebelum filter
             if top_asli:
                 words_asli = [w for w, v in top_asli]
                 vals_asli = [v for w, v in top_asli]
@@ -297,7 +331,6 @@ elif halaman == "Detail per Hotel":
                 axes[0].set_title(f'{hotel_pilihan}\nSEBELUM Filter (Asli)', fontsize=10, fontweight='bold')
                 axes[0].set_xlabel('Nilai TF-IDF')
                 axes[0].grid(axis='x', linestyle='--', alpha=0.3)
-                # Tandai kata yang akan difilter
                 for j, (bar, word) in enumerate(zip(bars1, words_asli[::-1])):
                     if word in KATA_FILTER:
                         bar.set_color('#EF5350')
@@ -306,7 +339,6 @@ elif halaman == "Detail per Hotel":
             else:
                 axes[0].text(0.5, 0.5, 'Tidak ada data', ha='center', va='center')
             
-            # Kanan: Sesudah filter
             if top_filtered:
                 words_filtered = [w for w, v in top_filtered]
                 vals_filtered = [v for w, v in top_filtered]
@@ -323,11 +355,9 @@ elif halaman == "Detail per Hotel":
             plt.tight_layout()
             st.pyplot(fig)
             
-            # Tampilkan daftar kata yang difilter
             filtered_words = [w for w, v in top_asli if w in KATA_FILTER]
             if filtered_words:
                 with st.expander(f"📋 Kata yang difilter ({len(filtered_words)} kata)"):
-                    # Kelompokkan berdasarkan kategori
                     kota_hotel = [w for w in filtered_words if w in ['singkawang', 'skw', 'mahkota', 'swiss', 'belhotel', 'dayang', 'horison', 'ultima', 'swissbell', 'resort', 'hotel']]
                     umum = [w for w in filtered_words if w not in kota_hotel]
                     if kota_hotel:
@@ -338,7 +368,7 @@ elif halaman == "Detail per Hotel":
             st.info("Tidak ada data top fitur yang tersedia.")
 
 # =============================================================================
-# HALAMAN 3: COBA LABEL SENDIRI (interaktif)
+# HALAMAN 3: COBA LABEL SENDIRI
 # =============================================================================
 else:
     from pipeline import unduh_inset, bangun_leksikon_hybrid, labeling_hybrid
