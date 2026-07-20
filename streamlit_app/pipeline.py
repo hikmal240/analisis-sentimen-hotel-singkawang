@@ -262,11 +262,14 @@ def labeling_hybrid(text: str, kata_positif: dict, kata_negatif: dict, min_evide
 # =============================================================================
 def latih_dan_evaluasi(df: pd.DataFrame) -> dict:
     """Split 80:20 stratified -> TF-IDF (fit hanya di train) -> Multinomial NB -> evaluasi."""
-    texts = df['komentar'].astype(str).values
-    y = df['label'].astype(str)
+    # FIX PERBAIKAN PYARROW / TYPEERROR:
+    # Mengonversi Series Pandas ke list standar Python sebelum dimasukkan ke sklearn train_test_split
+    texts = df['komentar'].astype(str).tolist()
+    y = df['label'].astype(str).tolist()
 
-    nilai_kelas = y.value_counts()
-    bisa_stratify = (y.nunique() >= 2) and (nilai_kelas.min() >= 2)
+    y_series = pd.Series(y)
+    nilai_kelas = y_series.value_counts()
+    bisa_stratify = (y_series.nunique() >= 2) and (nilai_kelas.min() >= 2)
 
     X_train_text, X_test_text, y_train, y_test = train_test_split(
         texts, y, test_size=0.20, random_state=RANDOM_STATE,
@@ -387,7 +390,6 @@ def main_interactive():
     if uploaded_files:
         temp_paths = {}
         for file in uploaded_files:
-            # Ambil nama hotel dari nama file atau input manual
             hotel_name = os.path.splitext(file.name)[0].replace("_", " ").title()
             with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
                 tmp.write(file.getvalue())
@@ -439,7 +441,7 @@ def main_interactive():
                 st.write("**Detail Angka:**")
                 st.write(f"Total Ulasan: **{dist_total['n_total']}**")
                 for k, v in dist_total['pct'].items():
-                    st.write(f"- {k}: {dist_total['counts'][k]} ({v:.2f}%)")
+                    st.write(f"- {k}: {dist_total['counts'].get(k, 0)} ({v:.2f}%)")
 
         with tab_detail:
             hotel_pilihan = st.selectbox("Pilih Hotel untuk Detail Evaluasi:", list(results.keys()))
