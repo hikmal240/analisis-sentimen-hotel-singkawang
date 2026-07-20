@@ -10,7 +10,7 @@ dan Filter Kata Non-Informatif pada Visualisasi TF-IDF.
 Jalankan lokal : streamlit run app.py
 =============================================================================
 """
-
+import os
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -79,11 +79,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Mengambil direktori tempat file app.py berada secara otomatis
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 CSV_FILES = {
-    "Hotel Mahkota Singkawang": "data/HOTEL_MAHKOTA_SINGKAWANG.csv",
-    "Hotel Swiss-Belhotel Singkawang": "data/HOTEL_SWISS-BELHOTEL_SINGKAWANG.csv",
-    "Hotel Dayang Resort Singkawang": "data/HOTEL_DAYANG_RESORT_SINGKAWANG.csv",
-    "Hotel Horison Ultima Singkawang": "data/HOTEL_HORISON_ULTIMA_SINGKAWANG.csv",
+    "Hotel Mahkota Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_MAHKOTA_SINGKAWANG.csv"),
+    "Hotel Swiss-Belhotel Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_SWISS-BELHOTEL_SINGKAWANG.csv"),
+    "Hotel Dayang Resort Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_DAYANG_RESORT_SINGKAWANG.csv"),
+    "Hotel Horison Ultima Singkawang": os.path.join(BASE_DIR, "data", "HOTEL_HORISON_ULTIMA_SINGKAWANG.csv"),
 }
 WARNA = {"Positif": "#4CAF50", "Negatif": "#F44336", "Netral": "#2196F3"}
 
