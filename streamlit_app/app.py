@@ -110,10 +110,6 @@ clean_data = hasil["clean_data"]
 results = hasil["results"]
 pos_n, neg_n = hasil["lexicon_size"]
 
-if hasil["warnings"]:
-    with st.expander("⚠️ Peringatan saat memuat data"):
-        for w in hasil["warnings"]:
-            st.warning(w)
 
 st.success(
     f"✅ Pipeline selesai dimuat. Leksikon hybrid aktif: {pos_n} kata positif, {neg_n} kata negatif."
